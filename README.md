@@ -1,6 +1,6 @@
 # DV Trainee Code Reviews
 
-Live app: **https://ntayeh-orion.github.io/dv-trainee-reviews/**
+Live app: **https://ntlearning23.github.io/dv-trainee-reviews/**
 
 A simple mentor tool for UVM / Design Verification trainee code-review interviews.
 
