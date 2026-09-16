@@ -74,6 +74,10 @@ function addReviewToPdf(doc, review, trainee, startY) {
   const scores = scoreReview(review);
 
   y = kv(doc, y, "Trainee", trainee ? trainee.name : "Unknown");
+  y = kv(doc, y, "Email", trainee && trainee.email ? trainee.email : "—");
+  y = kv(doc, y, "Cohort", trainee && trainee.cohort ? trainee.cohort : "—");
+  y = kv(doc, y, "Current topic", trainee && trainee.currentTopic ? trainee.currentTopic : "—");
+  y = kv(doc, y, "Git repo", trainee && trainee.gitRepo ? trainee.gitRepo : "—");
   y = kv(doc, y, "Review", review.reviewName);
   y = kv(doc, y, "Reviewer", review.reviewer);
   y = kv(doc, y, "Date", review.date);

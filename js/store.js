@@ -69,13 +69,28 @@ function todayISO() {
   return `${d.getFullYear()}-${month}-${day}`;
 }
 
-function createTrainee(name) {
+function createTrainee(fields) {
+  const data = typeof fields === "string" ? { name: fields } : fields || {};
   return {
     id: uid(),
-    name: name.trim(),
+    name: (data.name || "").trim(),
+    email: (data.email || "").trim(),
+    cohort: (data.cohort || "").trim(),
+    currentTopic: (data.currentTopic || "").trim(),
+    gitRepo: (data.gitRepo || "").trim(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+function applyTraineeProfile(trainee, fields) {
+  trainee.name = (fields.name || "").trim();
+  trainee.email = (fields.email || "").trim();
+  trainee.cohort = (fields.cohort || "").trim();
+  trainee.currentTopic = (fields.currentTopic || "").trim();
+  trainee.gitRepo = (fields.gitRepo || "").trim();
+  trainee.updatedAt = new Date().toISOString();
+  return trainee;
 }
 
 function createReview(trainee, fields) {

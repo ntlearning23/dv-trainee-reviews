@@ -108,6 +108,19 @@ function recBadge(rec) {
   return `<span class="badge badge-${rec}">${esc(recommendationLabel(rec))}</span>`;
 }
 
+function repoHref(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^github\.com\//i.test(raw)) return "https://" + raw;
+  if (/^[\w.-]+\/[\w.-]+$/.test(raw)) return "https://github.com/" + raw;
+  return "";
+}
+
+function profileLine(trainee) {
+  return [trainee.cohort, trainee.currentTopic].filter(Boolean).join(" · ");
+}
+
 function progressBar(done, total) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return `<div class="progress-meta"><div class="progress"><span style="width:${pct}%"></span></div><span>${done}/${total}</span></div>`;
@@ -132,7 +145,10 @@ function renderDashboard() {
           const actions = reviews.reduce((n, r) => n + openActionCount(r), 0);
           return `
             <tr class="clickable" data-go="#/trainee/${t.id}">
-              <td><a href="#/trainee/${t.id}"><strong>${esc(t.name)}</strong></a></td>
+              <td>
+                <a href="#/trainee/${t.id}"><strong>${esc(t.name)}</strong></a>
+                ${profileLine(t) ? `<div class="muted">${esc(profileLine(t))}</div>` : ""}
+              </td>
               <td>${reviews.length}</td>
               <td>${latest ? esc(latest.reviewName) : `<span class="muted">No reviews</span>`}</td>
               <td class="mono">${scores ? formatPct(scores.project.pct) : "—"}</td>
@@ -256,6 +272,16 @@ function renderTrainee(route) {
         .join("")
     : `<div class="empty"><h3>No reviews yet</h3><p>Create the first code-review interview for ${esc(trainee.name)}.</p></div>`;
 
+  const emailHtml = trainee.email
+    ? `<a href="mailto:${attr(trainee.email)}">${esc(trainee.email)}</a>`
+    : `<span class="muted">Not set</span>`;
+  const repoLink = repoHref(trainee.gitRepo);
+  const repoHtml = trainee.gitRepo
+    ? repoLink
+      ? `<a href="${attr(repoLink)}" target="_blank" rel="noopener">${esc(trainee.gitRepo)}</a>`
+      : esc(trainee.gitRepo)
+    : `<span class="muted">Not set</span>`;
+
   app.innerHTML = `
     ${header(`<button class="btn btn-ghost" data-action="export-trainee" data-id="${trainee.id}">Export all PDFs</button>
       <button class="btn btn-teal" data-action="add-review" data-id="${trainee.id}">Add review</button>`)}
@@ -267,10 +293,19 @@ function renderTrainee(route) {
           <p>${reviews.length} review${reviews.length === 1 ? "" : "s"} · previous reviews stay in history.</p>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-light" data-action="rename-trainee" data-id="${trainee.id}">Rename</button>
+          <button class="btn btn-light" data-action="rename-trainee" data-id="${trainee.id}">Edit profile</button>
           <button class="btn btn-danger" data-action="delete-trainee" data-id="${trainee.id}">Delete trainee</button>
         </div>
       </div>
+      <section class="card" style="margin-bottom:16px">
+        <div class="card-h"><h2>Profile</h2></div>
+        <div class="profile-grid">
+          <div class="field"><label>Email</label><div class="profile-value">${emailHtml}</div></div>
+          <div class="field"><label>Cohort</label><div class="profile-value">${trainee.cohort ? esc(trainee.cohort) : `<span class="muted">Not set</span>`}</div></div>
+          <div class="field"><label>Current topic</label><div class="profile-value">${trainee.currentTopic ? esc(trainee.currentTopic) : `<span class="muted">Not set</span>`}</div></div>
+          <div class="field"><label>Git repo</label><div class="profile-value">${repoHtml}</div></div>
+        </div>
+      </section>
       <section class="card">
         <div class="card-h">
           <h2>Review history</h2>
@@ -326,29 +361,43 @@ function renderReview(route) {
       const body = items
         .map(
           (item) => `
-          <article class="check-item" id="item-${item.id}">
-            <div class="check-item-top">
-              <textarea class="item-text" data-field="text" data-id="${item.id}">${esc(item.text)}</textarea>
-              ${statusSelect(item)}
-              <button class="btn btn-danger btn-sm" data-action="delete-item" data-id="${item.id}">Delete</button>
-            </div>
-            <div class="check-fields">
-              <div>
-                <label>Notes</label>
-                <textarea data-field="notes" data-id="${item.id}" placeholder="Observations from the code">${esc(item.notes)}</textarea>
-              </div>
-              <div>
-                <label>Action item</label>
-                <textarea data-field="actionItem" data-id="${item.id}" placeholder="What the trainee should fix">${esc(item.actionItem)}</textarea>
-              </div>
-            </div>
-          </article>`
+          <tr id="item-${item.id}">
+            <td>
+              <textarea class="cell-input item-text" data-field="text" data-id="${item.id}" rows="2">${esc(item.text)}</textarea>
+            </td>
+            <td>${statusSelect(item)}</td>
+            <td>
+              <textarea class="cell-input" data-field="notes" data-id="${item.id}" rows="2" placeholder="Observations">${esc(item.notes)}</textarea>
+            </td>
+            <td>
+              <textarea class="cell-input" data-field="actionItem" data-id="${item.id}" rows="2" placeholder="What to fix">${esc(item.actionItem)}</textarea>
+            </td>
+            <td class="col-del">
+              <button class="btn btn-danger btn-sm btn-icon" data-action="delete-item" data-id="${item.id}" title="Delete item" aria-label="Delete item">×</button>
+            </td>
+          </tr>`
         )
         .join("");
       return `
-        <section class="cat-block" id="cat-${cssId(cat)}">
-          <h3>${esc(cat)} ${progressBar(p.done, p.total)}</h3>
-          ${body}
+        <section class="cat-block card" id="cat-${cssId(cat)}">
+          <div class="card-h">
+            <h3>${esc(cat)}</h3>
+            ${progressBar(p.done, p.total)}
+          </div>
+          <div class="table-wrap">
+            <table class="check-table">
+              <thead>
+                <tr>
+                  <th class="col-item">Checklist item</th>
+                  <th class="col-status">Status</th>
+                  <th class="col-notes">Notes</th>
+                  <th class="col-action">Action item</th>
+                  <th class="col-del"></th>
+                </tr>
+              </thead>
+              <tbody>${body}</tbody>
+            </table>
+          </div>
           <div class="add-row">
             <button class="btn btn-light btn-sm" data-action="add-item" data-cat="${attr(cat)}">Add checklist item</button>
           </div>
@@ -475,10 +524,14 @@ function modalHtml() {
   if (ui.modal.type === "trainee") {
     return `
       <div class="modal-back">
-        <div class="modal">
-          <div class="modal-h"><h2>${ui.modal.id ? "Rename trainee" : "Add trainee"}</h2></div>
+        <div class="modal wide">
+          <div class="modal-h"><h2>${ui.modal.id ? "Edit trainee profile" : "Add trainee"}</h2></div>
           <div class="modal-b">
             <div class="field"><label>Trainee name</label><input id="modal-name" value="${attr(ui.modal.name || "")}" placeholder="e.g. Sara Haddad" /></div>
+            <div class="field"><label>Email</label><input id="modal-email" type="email" value="${attr(ui.modal.email || "")}" placeholder="e.g. sara@company.com" /></div>
+            <div class="field"><label>Cohort</label><input id="modal-cohort" value="${attr(ui.modal.cohort || "")}" placeholder="e.g. DV Bootcamp 2026" /></div>
+            <div class="field"><label>Current topic</label><input id="modal-topic" value="${attr(ui.modal.currentTopic || "")}" placeholder="e.g. ALU scoreboard" /></div>
+            <div class="field"><label>Git repo link</label><input id="modal-repo" value="${attr(ui.modal.gitRepo || "")}" placeholder="https://github.com/org/alu-tb" /></div>
           </div>
           <div class="modal-f">
             <button class="btn btn-light" data-action="close-modal">Cancel</button>
@@ -742,7 +795,7 @@ document.addEventListener("click", (e) => {
     return;
   }
   if (action === "add-trainee") {
-    ui.modal = { type: "trainee", name: "" };
+    ui.modal = { type: "trainee", name: "", email: "", cohort: "", currentTopic: "", gitRepo: "" };
     render();
     const input = document.getElementById("modal-name");
     if (input) input.focus();
@@ -750,19 +803,31 @@ document.addEventListener("click", (e) => {
   }
   if (action === "rename-trainee") {
     const t = traineeById(el.dataset.id);
-    ui.modal = { type: "trainee", id: t.id, name: t.name };
+    ui.modal = {
+      type: "trainee",
+      id: t.id,
+      name: t.name,
+      email: t.email || "",
+      cohort: t.cohort || "",
+      currentTopic: t.currentTopic || "",
+      gitRepo: t.gitRepo || "",
+    };
     render();
     return;
   }
   if (action === "submit-trainee") {
-    const name = (document.getElementById("modal-name").value || "").trim();
-    if (!name) return;
+    const fields = {
+      name: (document.getElementById("modal-name").value || "").trim(),
+      email: (document.getElementById("modal-email").value || "").trim(),
+      cohort: (document.getElementById("modal-cohort").value || "").trim(),
+      currentTopic: (document.getElementById("modal-topic").value || "").trim(),
+      gitRepo: (document.getElementById("modal-repo").value || "").trim(),
+    };
+    if (!fields.name) return;
     if (ui.modal.id) {
-      const t = traineeById(ui.modal.id);
-      t.name = name;
-      t.updatedAt = new Date().toISOString();
+      applyTraineeProfile(traineeById(ui.modal.id), fields);
     } else {
-      state.trainees.push(createTrainee(name));
+      state.trainees.push(createTrainee(fields));
     }
     persist();
     ui.modal = null;
