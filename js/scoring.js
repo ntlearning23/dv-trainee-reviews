@@ -4,48 +4,116 @@ function scoredChecklistItems(checklist) {
   );
 }
 
-function projectScore(checklist) {
-  const scored = scoredChecklistItems(checklist);
-  const applicable = checklist.filter((item) => item.status !== "na");
-  const done = checklist.filter((item) => item.status !== "not_reviewed");
-  const pass = checklist.filter((item) => item.status === "pass").length;
-  const ni = checklist.filter((item) => item.status === "needs_improvement").length;
-  const fail = checklist.filter((item) => item.status === "fail").length;
-  const pending = checklist.filter((item) => item.status === "pending").length;
-  const notReviewed = checklist.filter((item) => item.status === "not_reviewed").length;
+function itemScoreValue(status) {
+  if (status === "pass") return 1;
+  if (status === "needs_improvement") return 0.5;
+  if (status === "fail") return 0;
+  return null;
+}
 
+function itemsForSection(checklist, section) {
+  return (checklist || []).filter((item) => {
+    if (item.categoryId && section.id) return item.categoryId === section.id;
+    return item.category === section.name;
+  });
+}
+
+function getReviewSections(review) {
+  if (review && Array.isArray(review.sections) && review.sections.length) {
+    return review.sections.map(normalizeSection);
+  }
+  const names = [];
+  for (const item of (review && review.checklist) || []) {
+    if (item.category && !names.includes(item.category)) names.push(item.category);
+  }
+  const ordered = CATEGORIES.filter((c) => names.includes(c)).concat(names.filter((c) => !CATEGORIES.includes(c)));
+  return ordered.map((name) => normalizeSection({ id: slugId("cat", name), name, kind: "required", weight: 1 }));
+}
+
+function scoreSection(items, section) {
+  const scored = scoredChecklistItems(items);
+  const done = items.filter((item) => item.status !== "not_reviewed");
+  const applicable = items.filter((item) => item.status !== "na");
+  const allNa = items.length > 0 && items.every((item) => item.status === "na");
+  const kind = section.kind || "required";
+  const weight = Number(section.weight);
+  const max = Number.isFinite(weight) && weight >= 0 ? weight : 1;
+  const base = {
+    id: section.id,
+    name: section.name,
+    kind,
+    max,
+    reviewed: done.length,
+    total: items.length,
+    applicable: applicable.length,
+    pass: items.filter((item) => item.status === "pass").length,
+    ni: items.filter((item) => item.status === "needs_improvement").length,
+    fail: items.filter((item) => item.status === "fail").length,
+  };
+
+  if (allNa || items.length === 0) {
+    return { ...base, pct: null, pending: true, included: false, earned: 0, missing: true };
+  }
   if (scored.length === 0) {
-    return {
-      pct: null,
-      pending: true,
-      reviewed: done.length,
-      total: checklist.length,
-      applicable: applicable.length,
-      pass,
-      ni,
-      fail,
-      pendingCount: pending,
-      notReviewed,
-    };
+    return { ...base, pct: null, pending: true, included: false, earned: 0, missing: true };
   }
 
-  const points = scored.reduce((sum, item) => {
-    if (item.status === "pass") return sum + 1;
-    if (item.status === "needs_improvement") return sum + 0.5;
-    return sum;
-  }, 0);
-
+  const ratio = scored.reduce((sum, item) => sum + itemScoreValue(item.status), 0) / scored.length;
   return {
-    pct: (points / scored.length) * 100,
+    ...base,
+    pct: ratio * 100,
     pending: false,
+    included: true,
+    earned: ratio * max,
+    missing: false,
+  };
+}
+
+function projectScore(checklist, sections) {
+  const list = checklist || [];
+  const sectionList = Array.isArray(sections) && sections.length
+    ? sections
+    : getReviewSections({ checklist: list });
+  const sectionScores = sectionList.map((section) => scoreSection(itemsForSection(list, section), section));
+
+  const scored = scoredChecklistItems(list);
+  const applicable = list.filter((item) => item.status !== "na");
+  const done = list.filter((item) => item.status !== "not_reviewed");
+  const pass = list.filter((item) => item.status === "pass").length;
+  const ni = list.filter((item) => item.status === "needs_improvement").length;
+  const pending = list.filter((item) => item.status === "pending").length;
+  const notReviewed = list.filter((item) => item.status === "not_reviewed").length;
+
+  const counted = sectionScores.filter((s) => s.kind !== "bonus" && s.included);
+  const bonuses = sectionScores.filter((s) => s.kind === "bonus" && s.included);
+  const fail = counted.reduce((n, s) => n + s.fail, 0);
+  const possiblePts = counted.reduce((n, s) => n + s.max, 0);
+  const earnedPts = counted.reduce((n, s) => n + s.earned, 0);
+  const bonusPts = bonuses.reduce((n, s) => n + s.earned, 0);
+
+  const stats = {
     reviewed: done.length,
-    total: checklist.length,
+    total: list.length,
     applicable: applicable.length,
     pass,
     ni,
     fail,
     pendingCount: pending,
     notReviewed,
+    sections: sectionScores,
+    possiblePts,
+    earnedPts,
+    bonusPts,
+  };
+
+  if (scored.length === 0 || possiblePts <= 0) {
+    return { pct: null, pending: true, ...stats };
+  }
+
+  return {
+    pct: ((earnedPts + bonusPts) / possiblePts) * 100,
+    pending: false,
+    ...stats,
   };
 }
 
@@ -109,6 +177,12 @@ function formatAvg(avg) {
   return avg.toFixed(1) + " / 5";
 }
 
+function formatPts(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  const n = Number(value);
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 function collectActionItems(review) {
   const items = [];
   for (const item of review.checklist) {
@@ -154,15 +228,16 @@ function needsFollowUp(review) {
 }
 
 function scoreReview(review) {
-  const project = projectScore(review.checklist || []);
+  const sections = getReviewSections(review);
+  const project = projectScore(review.checklist || [], sections);
   const interview = interviewScore(review.questions || []);
   const overall = overallScore(project, interview);
   const verdict = verdictFromScores(overall, project, interview);
   return { project, interview, overall, verdict };
 }
 
-function categoryProgress(checklist, category) {
-  const items = checklist.filter((item) => item.category === category);
+function categoryProgress(checklist, category, section) {
+  const items = section ? itemsForSection(checklist, section) : checklist.filter((item) => item.category === category);
   const done = items.filter((item) => item.status !== "not_reviewed").length;
   return { done, total: items.length };
 }

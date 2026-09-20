@@ -89,6 +89,18 @@ function addReviewToPdf(doc, review, trainee, startY) {
   y = kv(doc, y, "Recommendation", recommendationLabel(review.recommendation));
   y += 4;
 
+  if (scores.project.sections && scores.project.sections.length) {
+    y = sectionTitle(doc, y, "Section scores");
+    for (const sec of scores.project.sections) {
+      const kind = sectionKindLabel(sec.kind);
+      const pts = sec.kind === "bonus"
+        ? (sec.included ? `+${formatPts(sec.earned)} extra` : "0 · not counted")
+        : (sec.included ? `${formatPts(sec.earned)} / ${formatPts(sec.max)}` : "0 · not counted");
+      y = kv(doc, y, sec.name, `${kind} · ${formatPct(sec.pct)} · ${pts}`);
+    }
+    y += 3;
+  }
+
   if (review.reviewNotes) {
     y = sectionTitle(doc, y, "Review Notes");
     y = para(doc, y, review.reviewNotes);
@@ -96,33 +108,43 @@ function addReviewToPdf(doc, review, trainee, startY) {
   }
 
   y = sectionTitle(doc, y, "Project Code Review");
-  let currentCat = "";
-  for (const item of review.checklist) {
-    if (item.category !== currentCat) {
-      currentCat = item.category;
-      y = ensureSpace(doc, y, 10);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(15, 118, 110);
-      doc.text(currentCat, 14, y);
-      doc.setTextColor(18, 32, 51);
-      y += 6;
+  const reviewSections = getReviewSections(review);
+  for (const sec of reviewSections) {
+    const items = itemsForSection(review.checklist, sec);
+    if (!items.length) continue;
+    y = ensureSpace(doc, y, 10);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15, 118, 110);
+    doc.text(sec.name, 14, y);
+    doc.setTextColor(18, 32, 51);
+    y += 6;
+    for (const item of items) {
+      y = ensureSpace(doc, y, 16);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      const code = itemCode(sec, items, item);
+      const head = wrapLines(doc, `${code}  [${statusLabel(item.status)}] ${item.text}`, 182);
+      doc.text(head, 14, y);
+      y += head.length * 5;
+      if (item.notes && item.notes.trim()) {
+        doc.setFont("helvetica", "italic");
+        y = para(doc, y, "Notes: " + item.notes.trim(), 18);
+      }
+      if (item.actionItem && item.actionItem.trim()) {
+        doc.setFont("helvetica", "italic");
+        y = para(doc, y, "Action: " + item.actionItem.trim(), 18);
+      }
+      const files = itemFiles(item);
+      for (const f of files) {
+        const name = String(f.file || "").trim();
+        const note = String(f.note || "").trim();
+        if (!name && !note) continue;
+        doc.setFont("helvetica", "italic");
+        y = para(doc, y, "File: " + (name || "Unnamed file") + (note ? " — " + note : ""), 18);
+      }
+      y += 2;
     }
-    y = ensureSpace(doc, y, 16);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    const head = wrapLines(doc, `[${statusLabel(item.status)}] ${item.text}`, 182);
-    doc.text(head, 14, y);
-    y += head.length * 5;
-    if (item.notes && item.notes.trim()) {
-      doc.setFont("helvetica", "italic");
-      y = para(doc, y, "Notes: " + item.notes.trim(), 18);
-    }
-    if (item.actionItem && item.actionItem.trim()) {
-      doc.setFont("helvetica", "italic");
-      y = para(doc, y, "Action: " + item.actionItem.trim(), 18);
-    }
-    y += 2;
   }
 
   y = sectionTitle(doc, y + 2, "Interview & Discussion");
@@ -135,6 +157,8 @@ function addReviewToPdf(doc, review, trainee, startY) {
     y += qLines.length * 5;
     doc.setFont("helvetica", "normal");
     y = para(doc, y, `Score: ${q.score === null || q.score === "" ? "Not scored" : q.score + " / 5"}`, 18);
+    const expected = questionExpectedAnswer(q);
+    if (expected) y = para(doc, y, "Expected answer: " + expected, 18);
     if (q.notes && q.notes.trim()) y = para(doc, y, "Answer / notes: " + q.notes.trim(), 18);
     if (q.followUp && q.followUp.trim()) y = para(doc, y, "Follow-up: " + q.followUp.trim(), 18);
     y += 2;

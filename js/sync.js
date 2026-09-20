@@ -20,25 +20,38 @@ function saveSyncSettings(settings) {
 }
 
 function workspacePayload(current) {
+  const normalized = normalizeState(current);
   return {
     app: "dv-trainee-reviews",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    trainees: current.trainees || [],
-    reviews: current.reviews || [],
-    deletedTraineeIds: current.deletedTraineeIds || [],
-    deletedReviewIds: current.deletedReviewIds || [],
+    trainees: normalized.trainees,
+    reviews: normalized.reviews,
+    deletedTraineeIds: normalized.deletedTraineeIds,
+    deletedReviewIds: normalized.deletedReviewIds,
+    template: normalized.template,
   };
 }
 
 function parseWorkspace(data) {
   if (!data || typeof data !== "object") throw new Error("Invalid workspace file");
-  return {
-    trainees: Array.isArray(data.trainees) ? data.trainees : [],
-    reviews: Array.isArray(data.reviews) ? data.reviews : [],
-    deletedTraineeIds: Array.isArray(data.deletedTraineeIds) ? data.deletedTraineeIds : [],
-    deletedReviewIds: Array.isArray(data.deletedReviewIds) ? data.deletedReviewIds : [],
-  };
+  const normalized = normalizeState({
+    trainees: data.trainees,
+    reviews: data.reviews,
+    deletedTraineeIds: data.deletedTraineeIds,
+    deletedReviewIds: data.deletedReviewIds,
+    template: data.template,
+  });
+  if (!data.template) normalized.template = null;
+  return normalized;
+}
+
+function mergeTemplate(localTpl, remoteTpl) {
+  if (!remoteTpl) return normalizeTemplate(localTpl);
+  if (!localTpl) return normalizeTemplate(remoteTpl);
+  const localAt = (localTpl && localTpl.updatedAt) || "";
+  const remoteAt = (remoteTpl && remoteTpl.updatedAt) || "";
+  return normalizeTemplate(remoteAt > localAt ? remoteTpl : localTpl);
 }
 
 function newerItem(a, b) {
@@ -67,12 +80,13 @@ function mergeStates(local, remote) {
   const reviews = mergeById(local.reviews, remote.reviews).filter(
     (r) => !deletedR.has(r.id) && !deletedT.has(r.traineeId)
   );
-  return {
+  return normalizeState({
     trainees,
     reviews,
     deletedTraineeIds: [...deletedT],
     deletedReviewIds: [...deletedR],
-  };
+    template: mergeTemplate(local.template, remote.template),
+  });
 }
 
 function downloadWorkspace(current) {
